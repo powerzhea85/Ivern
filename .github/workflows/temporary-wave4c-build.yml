@@ -1,0 +1,101 @@
+name: Temporary Wave 4C Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/temporary-wave4c-build.yml'
+      - 'ci/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      WORKSPACE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-a454-81f4-a6b9-d1f26a36db3e/raw?se=2026-07-19T05:29:41Z&sp=r&sv=2026-02-06&sr=b&scid=60b0b2a6-3cd3-530d-be06-eff3366f9531&skoid=002823aa-689d-47ca-9347-108c20f4f00d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-18T23:13:22Z&ske=2026-07-20T23:13:22Z&sks=b&skv=2026-02-06&sig=TtL9mXqXf8LUz39VDxgUWik9ZW96YuxrfUsqoYnw3J0%3D"
+
+    steps:
+      - name: Checkout CI files
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download verified Wave 4 workspace
+        run: |
+          curl --fail --location --retry 3 "$WORKSPACE_URL" --output workspace.zip
+          test "$(sha256sum workspace.zip | cut -d' ' -f1)" = "702b0691b67856168420db0ac045518d41beb682a440c2a466ab8a251850fcf2"
+          mkdir work
+          unzip -q workspace.zip -d work
+
+      - name: Reconstruct and apply Wave 4B and 4C
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+
+          root = pathlib.Path('work')
+          for source_root in (root / 'src' / 'BenjaminMenu', root / 'docs'):
+              for path in source_root.rglob('*'):
+                  if path.is_file() and path.suffix.lower() in {'.cs', '.csproj', '.md'}:
+                      path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
+
+          def reconstruct(directory, output, expected):
+              encoded = ''.join(p.read_text(encoding='ascii').strip() for p in sorted(pathlib.Path(directory).glob('part*.txt')))
+              decoded = gzip.decompress(base64.b64decode(encoded))
+              actual = hashlib.sha256(decoded).hexdigest()
+              if actual != expected:
+                  raise RuntimeError(f'{output} hash mismatch: {actual}')
+              destination = pathlib.Path(output)
+              destination.write_bytes(decoded)
+              return destination
+
+          wave4b = reconstruct('ci/wave4bparts', 'wave4b.patch', '2c4db15655c1ec00962de9d27144f6a51ba385ccb28b5836759cb9f09df2f2cb')
+          subprocess.check_call(['git', 'init'], cwd=root)
+          subprocess.check_call(['git', 'apply', '--check', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4b)], cwd=root)
+          subprocess.check_call(['git', 'apply', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4b)], cwd=root)
+
+          for source_root in (root / 'src' / 'BenjaminMenu', root / 'docs'):
+              for path in source_root.rglob('*'):
+                  if path.is_file() and path.suffix.lower() in {'.cs', '.csproj', '.md'}:
+                      path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
+
+          wave4c = reconstruct('ci/wave4cparts', 'wave4c.patch', '727c20e166f60c6b813064f84c962e035874d80d03edffaef53036ce32c7bcae')
+          subprocess.check_call(['git', 'apply', '--check', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4c)], cwd=root)
+          subprocess.check_call(['git', 'apply', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4c)], cwd=root)
+          PY
+
+      - name: Build Wave 4C DLL
+        run: |
+          dotnet build work/src/BenjaminMenu/BenjaminMenu.csproj \
+            --configuration Release \
+            /p:SourceRevisionId=${{ github.sha }} \
+            /p:ContinuousIntegrationBuild=true 2>&1 | tee build.log
+
+      - name: Assemble QA package
+        run: |
+          mkdir artifact
+          cp work/src/BenjaminMenu/bin/Release/BenjaminMenu.dll artifact/BenjaminMenu-QA-Wave4C-Aimbot.dll
+          cp work/docs/WAVE_4C_AIMBOT_TEST.md artifact/WAVE_4C_AIMBOT_TEST.md
+          sha256sum artifact/BenjaminMenu-QA-Wave4C-Aimbot.dll > artifact/BenjaminMenu-QA-Wave4C-Aimbot.sha256.txt
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wave4C-Build-Diagnostics
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Wave 4C package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BenjaminMenu-QA-Wave4C-Aimbot
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30
