@@ -1,0 +1,16 @@
+name: Public Build Test
+on:
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: New-Item -ItemType Directory artifact -Force | Out-Null; 'ok' | Out-File artifact/test.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-build-test
+          path: artifact/*
