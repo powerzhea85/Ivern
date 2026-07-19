@@ -15,17 +15,31 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Build
-        shell: pwsh
-        run: dotnet build 'wave7-fix4/Wave7Fix4.csproj' -c Release
-      - name: Package
+        id: compile
+        continue-on-error: true
         shell: pwsh
         run: |
           New-Item -ItemType Directory artifact -Force | Out-Null
-          Copy-Item 'wave7-fix4/bin/Release/netstandard2.0/BenjaminMenu.Wave7.Fix4.CompletePreset.dll' 'artifact/BenjaminMenu-Wave7-FIX4-CompletePreset.dll'
+          dotnet build 'wave7-fix4/Wave7Fix4.csproj' -c Release *>&1 | Tee-Object -FilePath 'artifact/build.log'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package outputs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory artifact -Force | Out-Null
+          if (Test-Path 'wave7-fix4/bin/Release/netstandard2.0/BenjaminMenu.Wave7.Fix4.CompletePreset.dll') {
+            Copy-Item 'wave7-fix4/bin/Release/netstandard2.0/BenjaminMenu.Wave7.Fix4.CompletePreset.dll' 'artifact/BenjaminMenu-Wave7-FIX4-CompletePreset.dll'
+          }
           Copy-Item 'wave7-fix4/WAVE_7_FIX4_TEST.md' 'artifact/WAVE_7_FIX4_TEST.md'
-      - uses: actions/upload-artifact@v4
+      - name: Upload build results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: BenjaminMenu-Wave7-FIX4-CompleteSpawner
           path: artifact/*
           if-no-files-found: error
           retention-days: 30
+      - name: Fail when compilation failed
+        if: steps.compile.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Wave 7 FIX4 compilation failed. See build.log artifact.'
