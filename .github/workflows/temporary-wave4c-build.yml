@@ -7,6 +7,11 @@ on:
     paths:
       - '.github/workflows/temporary-wave4c-build.yml'
       - 'ci/**'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/temporary-wave4c-build.yml'
+      - 'ci/**'
 
 permissions:
   contents: read
