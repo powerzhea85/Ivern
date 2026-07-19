@@ -20,7 +20,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      WORKSPACE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-a454-81f4-a6b9-d1f26a36db3e/raw?se=2026-07-19T05:29:41Z&sp=r&sv=2026-02-06&sr=b&scid=60b0b2a6-3cd3-530d-be06-eff3366f9531&skoid=002823aa-689d-47ca-9347-108c20f4f00d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-18T23:13:22Z&ske=2026-07-20T23:13:22Z&sks=b&skv=2026-02-06&sig=TtL9mXqXf8LUz39VDxgUWik9ZW96YuxrfUsqoYnw3J0%3D"
+      WORKSPACE_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-158c-81f4-8292-4c917e093bc5/raw?se=2026-07-19T05:34:41Z&sp=r&sv=2026-02-06&sr=b&scid=0831d59c-55d0-5740-a11b-d07e629b2a77&skoid=002823aa-689d-47ca-9347-108c20f4f00d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-19T00:14:29Z&ske=2026-07-21T00:14:29Z&sks=b&skv=2026-02-06&sig=rP2X0M9Jc7KOwaZZY/p/9Lo5bkkuUZteQ8KRv/8k9ro%3D"
 
     steps:
       - name: Checkout CI files
@@ -31,14 +31,21 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Download verified Wave 4 workspace
+      - name: Download verified workspace
         run: |
           curl --fail --location --retry 3 "$WORKSPACE_URL" --output workspace.zip
           test "$(sha256sum workspace.zip | cut -d' ' -f1)" = "702b0691b67856168420db0ac045518d41beb682a440c2a466ab8a251850fcf2"
           mkdir work
           unzip -q workspace.zip -d work
+          git -C work init
 
-      - name: Reconstruct and apply Wave 4B and 4C
+      - name: Apply complete Wave 4B integration
+        run: |
+          cat ci/wave4bparts/part*.txt | tr -d '\r\n' > work/tools/wave4b-silentaim.patch.gz.b64
+          cd work
+          python3 ../ci/apply_wave4b.py
+
+      - name: Reconstruct and apply Wave 4C
         run: |
           python3 - <<'PY'
           import base64, gzip, hashlib, pathlib, subprocess
@@ -49,29 +56,15 @@ jobs:
                   if path.is_file() and path.suffix.lower() in {'.cs', '.csproj', '.md'}:
                       path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
 
-          def reconstruct(directory, output, expected):
-              encoded = ''.join(p.read_text(encoding='ascii').strip() for p in sorted(pathlib.Path(directory).glob('part*.txt')))
-              decoded = gzip.decompress(base64.b64decode(encoded))
-              actual = hashlib.sha256(decoded).hexdigest()
-              if actual != expected:
-                  raise RuntimeError(f'{output} hash mismatch: {actual}')
-              destination = pathlib.Path(output)
-              destination.write_bytes(decoded)
-              return destination
-
-          wave4b = reconstruct('ci/wave4bparts', 'wave4b.patch', '2c4db15655c1ec00962de9d27144f6a51ba385ccb28b5836759cb9f09df2f2cb')
-          subprocess.check_call(['git', 'init'], cwd=root)
-          subprocess.check_call(['git', 'apply', '--check', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4b)], cwd=root)
-          subprocess.check_call(['git', 'apply', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4b)], cwd=root)
-
-          for source_root in (root / 'src' / 'BenjaminMenu', root / 'docs'):
-              for path in source_root.rglob('*'):
-                  if path.is_file() and path.suffix.lower() in {'.cs', '.csproj', '.md'}:
-                      path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
-
-          wave4c = reconstruct('ci/wave4cparts', 'wave4c.patch', '727c20e166f60c6b813064f84c962e035874d80d03edffaef53036ce32c7bcae')
-          subprocess.check_call(['git', 'apply', '--check', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4c)], cwd=root)
-          subprocess.check_call(['git', 'apply', '--verbose', '--whitespace=nowarn', str(pathlib.Path('..') / wave4c)], cwd=root)
+          encoded = ''.join(p.read_text(encoding='ascii').strip() for p in sorted(pathlib.Path('ci/wave4cparts').glob('part*.txt')))
+          decoded = gzip.decompress(base64.b64decode(encoded))
+          actual = hashlib.sha256(decoded).hexdigest()
+          expected = '727c20e166f60c6b813064f84c962e035874d80d03edffaef53036ce32c7bcae'
+          if actual != expected:
+              raise RuntimeError(f'Wave 4C patch hash mismatch: {actual}')
+          pathlib.Path('wave4c.patch').write_bytes(decoded)
+          subprocess.check_call(['git', 'apply', '--check', '--verbose', '--whitespace=nowarn', '../wave4c.patch'], cwd=root)
+          subprocess.check_call(['git', 'apply', '--verbose', '--whitespace=nowarn', '../wave4c.patch'], cwd=root)
           PY
 
       - name: Build Wave 4C DLL
