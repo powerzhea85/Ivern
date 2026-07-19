@@ -10,8 +10,8 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
-    <PackageReference Include="HarmonyX" Version="2.9.0" />
+    <ProjectReference Include="stubs/BepInExStub.csproj" PrivateAssets="all" />
+    <PackageReference Include="HarmonyX" Version="2.9.0" PrivateAssets="all" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
   </ItemGroup>
 </Project>
